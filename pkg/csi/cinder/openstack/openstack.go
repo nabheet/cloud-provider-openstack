@@ -18,6 +18,8 @@ package openstack
 
 import (
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -55,7 +57,8 @@ type OpenStack struct {
 }
 
 type BlockStorageOpts struct {
-	NodeVolumeAttachLimit int64 `gcfg:"node-volume-attach-limit"`
+	NodeVolumeAttachLimit int64  `gcfg:"node-volume-attach-limit"`
+	BSVersion             string `gcfg:"bs-version"`
 }
 
 type Config struct {
@@ -146,6 +149,7 @@ func InitOpenStackProvider(cfgFile string) {
 func CreateOpenStackProvider() (IOpenStack, error) {
 	var authOpts gophercloud.AuthOptions
 	var authURL string
+	var blockstorageclient *gophercloud.ServiceClient
 	var caFile string
 	// Get config from file
 	cfg, epOpts, err := GetConfigFromFile(configFile)
@@ -160,6 +164,11 @@ func CreateOpenStackProvider() (IOpenStack, error) {
 			return nil, err
 		}
 		authURL = authOpts.IdentityEndpoint
+	}
+
+	bsVersion := cfg.BlockStorage.BSVersion
+	if bsVersion == "" {
+		bsVersion = "auto"
 	}
 
 	provider, err := openstack.NewClient(authURL)
@@ -187,9 +196,43 @@ func CreateOpenStackProvider() (IOpenStack, error) {
 	}
 
 	// Init Cinder ServiceClient
-	blockstorageclient, err := openstack.NewBlockStorageV3(provider, epOpts)
-	if err != nil {
-		return nil, err
+	switch bsVersion {
+	case "v2":
+		client, err := openstack.NewBlockStorageV2(provider, epOpts)
+		if err != nil {
+			return nil, err
+		}
+		klog.V(3).Info("Using Blockstorage API V2")
+		blockstorageclient = client
+	case "v3":
+		client, err := openstack.NewBlockStorageV3(provider, epOpts)
+		if err != nil {
+			return nil, err
+		}
+		klog.V(3).Info("Using Blockstorage API V3")
+		blockstorageclient = client
+	case "auto":
+		// Currently kubernetes support Cinder v2 / Cinder v3.
+		// Choose Cinder v3 firstly, if kubernetes can't initialize cinder v3 client, try to initialize cinder v2 client.
+		// Return appropriate message when kubernetes can't initialize them.
+		if client, err := openstack.NewBlockStorageV3(provider, epOpts); err == nil {
+			klog.V(3).Info("Using Blockstorage API V3")
+			blockstorageclient = client
+			break
+		}
+
+		if client, err := openstack.NewBlockStorageV2(provider, epOpts); err == nil {
+			klog.V(3).Info("Using Blockstorage API V2")
+			blockstorageclient = client
+			break
+		}
+
+		errTxt := "BlockStorage API version autodetection failed. " +
+			"Please set it explicitly in cloud.conf in section [BlockStorage] with key `bs-version`"
+		return nil, errors.New(errTxt)
+	default:
+		errTxt := fmt.Sprintf("Config error: unrecognised bs-version \"%v\"", bsVersion)
+		return nil, errors.New(errTxt)
 	}
 
 	// Init OpenStack

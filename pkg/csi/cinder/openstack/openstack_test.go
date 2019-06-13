@@ -33,6 +33,7 @@ var fakeTenantID = "c869168a828847f39f7f06edd7305637"
 var fakeDomainID = "2a73b8f597c04551a0fdc8e95544be8a"
 var fakeRegion = "RegionOne"
 var fakeCAfile = "fake-ca.crt"
+var fakeBSVersion = "v3"
 
 // Test GetConfigFromFile
 func TestGetConfigFromFile(t *testing.T) {
@@ -46,6 +47,9 @@ tenant-id=` + fakeTenantID + `
 domain-id=` + fakeDomainID + `
 ca-file=` + fakeCAfile + `
 region=` + fakeRegion + `
+
+[BlockStorage]
+bs-version=` + fakeBSVersion + `
 `
 
 	f, err := os.Create(fakeFileName)
@@ -70,6 +74,8 @@ region=` + fakeRegion + `
 	expectedOpts.Global.CAFile = fakeCAfile
 	expectedOpts.Global.TenantId = fakeTenantID
 	expectedOpts.Global.Region = fakeRegion
+
+	expectedOpts.BlockStorage.BSVersion = fakeBSVersion
 
 	expectedEpOpts := gophercloud.EndpointOpts{
 		Region: fakeRegion,
